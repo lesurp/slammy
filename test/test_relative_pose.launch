@@ -1,0 +1,3 @@
+<launch>
+ <test test-name="test_relative_pose" type="test_relative_pose" pkg="slammy"/>
+</launch>

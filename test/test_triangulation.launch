@@ -1,0 +1,4 @@
+<launch>
+ <test test-name="test_triangulation" type="test_triangulation" pkg="slammy"/>
+</launch>
+

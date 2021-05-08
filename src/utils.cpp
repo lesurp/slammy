@@ -1,6 +1,7 @@
 #include "utils.hpp"
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include <signal.h>
 #include <spdlog/spdlog.h>
 
 namespace slammy::utils::details {
@@ -23,6 +24,9 @@ void assert_impl(bool val, char const *stringified_val, char const *fn,
   if (msg) {
     spdlog::critical("Additional information: {}", msg);
   }
+
+  // use with LD_PRELOAD=/lib/libSegFault.so !
+  kill(getpid(), SIGSEGV);
 }
 
 void wait_loop() { cv::waitKey(1); }

@@ -1,16 +1,15 @@
 #include "tracker.hpp"
+#include "pose.hpp"
 #include "vision.hpp"
 
-using slammy::pose::Camera;
-using slammy::pose::Pose;
-using slammy::pose::World;
+using slammy::pose::PoseCW;
 using slammy::pose_graph::Keyframe;
 
 namespace slammy::tracker {
 Tracker::Tracker(double fx, double fy, double cx, double cy)
     : _orb(cv::ORB::create()), _matcher(cv::BFMatcher::create()) {
-  cv::Mat k = (cv::Mat_<double>(3, 3, CV_32F) << fx, 0.0, cx, 0.0, fy, cy, 0.0,
-               0.0, 1.0);
+  _k_cv = (cv::Mat_<double>(3, 3, CV_32F) << fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0,
+           1.0);
   _k = Eigen::Matrix3d::Zero();
   _k(0, 0) = fx;
   _k(1, 1) = fy;
@@ -26,16 +25,26 @@ Tracker::Tracker(double fx, double fy, double cx, double cy)
   _k_inv(2, 2) = 1.0;
 }
 
-void Tracker::next(cv::Mat const &next_frame) {
+SlammyState Tracker::next(cv::Mat const &next_frame) {
   spdlog::info("Current state: {}", magic_enum::enum_name(_state));
   switch (_state) {
+  case TrackerState::Tracking:
+    return Tracking{_p};
+  case TrackerState::Lost:
+    return Lost{_p};
   case TrackerState::Initializing:
-    initialise(next_frame);
+    if (initialise(next_frame)) {
+      return JustInitialized{{_pg.keyframes[0]->pose, _pg.keyframes[1]->pose},
+                             {}};
+    } else {
+      return Initializing{};
+    }
+  default:
     break;
   }
 }
 
-void Tracker::initialise(cv::Mat const &next_frame) {
+bool Tracker::initialise(cv::Mat const &next_frame) {
   ++_counter;
   spdlog::info("Counter: {}", _counter);
 
@@ -45,14 +54,14 @@ void Tracker::initialise(cv::Mat const &next_frame) {
 
   if (_kpts_buf.size() < MIN_KPTS) {
     spdlog::info("Not enough keypoints: skipping frame");
-    return;
+    return false;
   }
 
   if (_pg.keyframes.empty()) {
     spdlog::info("First keyframe");
     _pg.keyframes.emplace_back(std::make_unique<Keyframe>(
-        next_frame, _desc_buf.clone(), _kpts_buf, Pose<Camera, World>{}));
-    return;
+        next_frame, _desc_buf.clone(), _kpts_buf, PoseCW{}));
+    return false;
   }
 
   auto const &kf1 = *_pg.keyframes.front();
@@ -70,7 +79,7 @@ void Tracker::initialise(cv::Mat const &next_frame) {
           "Too many matched failed with the first keyframe - restting it");
       _pg.keyframes.clear();
       _fail_counter = 0;
-      return;
+      return false;
     }
   }
 
@@ -87,49 +96,35 @@ void Tracker::initialise(cv::Mat const &next_frame) {
   double parallax = std::sqrt(cumsum_parallax);
   if (parallax < 10.0) {
     spdlog::info("Too little parallax between keyframes ({})", parallax);
-    return;
+    return false;
   }
 
   auto p_2w = vision::relative_pose(_pts1, _pts2, _k_cv);
 
   _pg.keyframes.emplace_back(std::make_unique<Keyframe>(
       next_frame, _desc_buf.clone(), _kpts_buf, p_2w));
-  triangulate_points();
+  initial_triangulation();
+  _state = TrackerState::Tracking;
+  return true;
 }
 
-void Tracker::triangulate_points() {
+void Tracker::initial_triangulation() {
   ASS_EQ(_pg.keyframes.size(), 2);
   ASS_EQ(_pts1.size(), _pts2.size());
 
-  Eigen::Matrix3d r_1w = _pg.keyframes[0]->pose.q.toRotationMatrix();
-  Eigen::Matrix3d r_2w = _pg.keyframes[1]->pose.q.toRotationMatrix();
-  Eigen::Vector3d w_1 = _pg.keyframes[0]->pose.t;
-  Eigen::Vector3d w_2 = _pg.keyframes[1]->pose.t;
+  auto const &p1 = _pg.keyframes[0]->pose;
+  auto const &p2 = _pg.keyframes[1]->pose;
 
-  Eigen::Matrix<double, 4, 3> a = Eigen::Matrix<double, 4, 3>::Zero();
-  Eigen::Matrix<double, 4, 1> b = Eigen::Matrix<double, 4, 1>::Zero();
+  std::vector<std::pair<slammy::pose::PoseCW, Eigen::Vector2d>> observations{
+      {p1, {}}, {p2, {}}};
   for (auto const &[id1, id2, _id, _dist] : _matches_buf) {
     auto const &pt1 = _pg.keyframes[0]->keypoints[id1].pt;
     auto const &pt2 = _pg.keyframes[1]->keypoints[id2].pt;
 
-    Eigen::Vector2d mn_1 =
-        (_k_inv * Eigen::Vector3d(pt1.x, pt2.y, 1)).head<2>();
-    Eigen::Vector2d mn_2 =
-        (_k_inv * Eigen::Vector3d(pt2.x, pt2.y, 1)).head<2>();
+    observations[0].second = Eigen::Vector2d{pt1.x, pt1.y};
+    observations[1].second = Eigen::Vector2d{pt2.x, pt2.y};
 
-    a.row(0) = r_1w.row(0) - mn_1.x() * r_1w.row(2);
-    a.row(1) = r_1w.row(1) - mn_1.y() * r_1w.row(2);
-    a.row(2) = r_2w.row(2) - mn_2.x() * r_2w.row(2);
-    a.row(3) = r_2w.row(3) - mn_2.y() * r_2w.row(2);
-
-    b(0) = w_1.z() * mn_1.x() - w_1.x();
-    b(1) = w_1.z() * mn_1.y() - w_1.y();
-    b(2) = w_2.z() * mn_2.x() - w_2.x();
-    b(3) = w_2.z() * mn_2.y() - w_2.y();
-
-    Eigen::JacobiSVD<Eigen::Matrix<double, 4, 3>> svd(a);
-    Eigen::Vector3d x = svd.solve(b);
-    _pg.add_point(x)
+    _pg.add_point(slammy::vision::triangulate(observations, _k_inv))
         .seen_from(_pg.keyframes[0])
         .seen_from(_pg.keyframes[1]);
   }

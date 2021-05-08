@@ -19,6 +19,9 @@ namespace consts {
 double constexpr PI = 3.141596;
 }
 
+template <class... Ts> struct variant_bullshit : Ts... { using Ts::operator()...; };
+template <class... Ts> variant_bullshit(Ts...) -> variant_bullshit<Ts...>;
+
 namespace details {
 void dbg_kpts_impl(cv::Mat const &frame, char const *frame_name,
                    std::vector<cv::KeyPoint> const &kpts);
@@ -34,7 +37,7 @@ void wait_loop();
 
 #define SLAMMY_EMPTY                                                           \
   do {                                                                         \
-  } while (true)
+  } while (false)
 
 #define DBG_LOOP() SLAMMY_EMPTY
 #define ASS(x) SLAMMY_EMPTY

@@ -16,6 +16,7 @@ int main(int argc, char **argv) {
   ros::NodeHandle n;
 
   auto camera = ros_bridge::CameraSubscriber{n, "/camera", 1000};
+  auto rviz = ros_bridge::RvizBridge{n};
   spdlog::info("Subscribed to {}", "/camera");
 
   auto tracker = tracker::Tracker{458.654, 457.296, 367.215, 248.375};
@@ -26,7 +27,19 @@ int main(int argc, char **argv) {
         auto next_frame = camera.next_frame();
         spdlog::info("Got next frame");
 
-        tracker.next(next_frame->image);
+        auto state = tracker.next(next_frame->image);
+        std::visit(
+            slammy::utils::variant_bullshit{
+                [](tracker::Initializing) {},
+                [&](tracker::Tracking const &t) { rviz.publish(t.pose); },
+                [&](tracker::Lost const &t) { rviz.publish(t.last_pose); },
+                [&](tracker::JustInitialized const &map) {
+                  for (auto const &p : map.poses) {
+                    rviz.publish(p);
+                  }
+                },
+            },
+            state);
 
         // path.poses.clear();
         /*

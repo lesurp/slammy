@@ -10,6 +10,7 @@ add_compile_definitions(OPENCV_DISABLE_EIGEN_TENSOR_SUPPORT)
 
 find_package(spdlog REQUIRED)
 find_package(fmt REQUIRED)
+find_package(OpenMP REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
@@ -18,26 +19,28 @@ find_package(catkin REQUIRED COMPONENTS
 )
 include_directories(${catkin_INCLUDE_DIRS})
 
-set(slammy_deps ${catkin_LIBRARIES} fmt spdlog)
+set(slammy_deps ${catkin_LIBRARIES} fmt spdlog OpenMP::OpenMP_CXX)
 
-add_executable(slammy
-    src/slammy.cpp
+add_library(slammy_lib
     src/utils.cpp
     src/tracker.cpp
     src/vision.cpp
     src/ros_bridge.cpp
 )
-target_link_libraries(slammy ${slammy_deps})
+target_link_libraries(slammy_lib ${slammy_deps})
 
 if(CATKIN_ENABLE_TESTING)
     function(register_test name)
         add_rostest_gtest(test_${name} test/test_${name}.launch
             test/test_${name}.cpp ${ARGN})
-        target_link_libraries(test_${name} ${slammy_deps} gtest_main)
+        target_link_libraries(test_${name} slammy_lib gtest_main)
         target_compile_definitions(test_${name} PUBLIC SLAMMY_NO_DBG)
     endfunction()
 
     find_package(rostest REQUIRED)
-    register_test(relative_pose src/vision.cpp)
+    register_test(relative_pose)
     register_test(triangulation)
 endif()
+
+add_executable(slammy src/slammy.cpp)
+target_link_libraries(slammy slammy_lib)

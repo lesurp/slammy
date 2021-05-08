@@ -22,6 +22,9 @@ template <typename To, typename From> struct Pose {
   }
 };
 
+using PoseWC = Pose<World, Camera>;
+using PoseCW = Pose<Camera, World>;
+
 template <typename A, typename B, typename C>
 Pose<A, C> operator*(Pose<A, B> const &p_ab, Pose<B, C> const &p_bc) {
   Pose<A, C> p_ac;

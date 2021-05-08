@@ -10,8 +10,22 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/features2d.hpp>
 #include <spdlog/spdlog.h>
+#include <variant>
 
 namespace slammy::tracker {
+
+struct Initializing {};
+struct JustInitialized {
+  std::vector<slammy::pose::PoseCW> poses;
+  std::vector<Eigen::Vector3d> points;
+};
+struct Tracking {
+  slammy::pose::PoseCW pose;
+};
+struct Lost {
+  slammy::pose::PoseCW last_pose;
+};
+using SlammyState = std::variant<Initializing, JustInitialized, Tracking, Lost>;
 
 // TODO file-ify
 auto constexpr MIN_KPTS = 500;
@@ -23,12 +37,12 @@ class Tracker {
 public:
   Tracker(double fx, double fy, double cx, double cy);
 
-  void next(cv::Mat const &next_frame);
+  SlammyState next(cv::Mat const &next_frame);
 
 private:
-  void initialise(cv::Mat const &next_frame);
+  bool initialise(cv::Mat const &next_frame);
 
-  void triangulate_points();
+  void initial_triangulation();
 
   cv::Ptr<cv::ORB> _orb;
   cv::Ptr<cv::BFMatcher> _matcher;
@@ -47,6 +61,7 @@ private:
 
   TrackerState _state = TrackerState::Initializing;
   slammy::pose_graph::PoseGraph _pg;
+  slammy::pose::PoseCW _p;
 };
 
 } // namespace slammy::tracker

@@ -3,12 +3,10 @@
 #include <fmt/ostream.h>
 #include <opencv2/core/eigen.hpp>
 
-using slammy::pose::Camera;
-using slammy::pose::Pose;
-using slammy::pose::World;
+using slammy::pose::PoseCW;
 
 namespace slammy::vision {
-Pose<Camera, World> relative_pose(std::vector<cv::Point2f> const &pts1,
+PoseCW relative_pose(std::vector<cv::Point2f> const &pts1,
                                   std::vector<cv::Point2f> const &pts2,
                                   cv::Mat const &k_cv) {
   auto e = cv::findEssentialMat(pts1, pts2, k_cv);
@@ -21,35 +19,32 @@ Pose<Camera, World> relative_pose(std::vector<cv::Point2f> const &pts1,
   Eigen::Matrix3d r_eigen;
   cv::cv2eigen(t, t_eigen);
   cv::cv2eigen(r, r_eigen);
-  return Pose<Camera, World>{t_eigen, Eigen::Quaterniond{r_eigen}};
+  return PoseCW{t_eigen, Eigen::Quaterniond{r_eigen}};
 }
 
 slammy::pose_graph::Point triangulate(
     std::vector<
-        std::pair<slammy::pose::Pose<slammy::pose::Camera, slammy::pose::World>,
+        std::pair<slammy::pose::PoseCW,
                   Eigen::Vector2d>> const &observations,
     Eigen::Matrix3d const &k_inv) {
 
   ASS(observations.size() > 1);
-  Eigen::MatrixX3d a(2 * observations.size(), 3);
-  Eigen::VectorXd b(2 * observations.size());
+  Eigen::MatrixX4d a(2 * observations.size(), 4);
 
 #pragma omp parallel for
   for (size_t i = 0; i < observations.size(); ++i) {
     auto const &[pose, px] = observations[i];
 
     Eigen::Matrix3d r = pose.q.toRotationMatrix();
-    double mn_x = k_inv(0, 0) * px.x() + k_inv(0, 2);
-    double mn_y = k_inv(1, 1) * px.y() + k_inv(1, 2);
+    Eigen::Vector2d mn = k_inv.col(2).head<2>() + k_inv.block<2, 2>(0, 0) * px;
 
-    a.row(2 * i) = r.row(0) - mn_x * r.row(2);
-    a.row(2 * i + 1) = r.row(1) - mn_y * r.row(2);
-    b(2 * i) = pose.t.z() * mn_x - pose.t.x();
-    b(2 * i + 1) = pose.t.z() * mn_y - pose.t.y();
+    a.block<2, 3>(2 * i, 0) = r.block<2, 3>(0, 0) - mn * r.row(2);
+    a.block<2, 1>(2 * i, 3) = pose.t.head<2>() - pose.t.z() * mn;
   }
   Eigen::JacobiSVD<Eigen::MatrixXd> svd(a, Eigen::ComputeThinU |
-                                               Eigen::ComputeThinV);
-  Eigen::Vector3d x = svd.solve(b);
-  return slammy::pose_graph::Point{x};
+                                               Eigen::ComputeFullV);
+  Eigen::Vector3d x = svd.matrixV().col(3).hnormalized();
+  //Eigen::VectorXd residual = a * x.homogeneous();
+  return slammy::pose_graph::Point{x, {}};
 }
 } // namespace slammy::vision

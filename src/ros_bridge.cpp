@@ -1,4 +1,6 @@
 #include "ros_bridge.hpp"
+#include "utils/ass.hpp"
+#include "utils/fmt.hpp"
 #include <spdlog/spdlog.h>
 
 namespace slammy::ros_bridge {
@@ -6,7 +8,7 @@ cv_bridge::CvImagePtr CameraSubscriber::_last_image = {};
 std::mutex CameraSubscriber::_last_image_mutex = {};
 std::condition_variable CameraSubscriber::_last_image_cv = {};
 
-cv_bridge::CvImagePtr CameraSubscriber::next_frame() {
+cv::Mat CameraSubscriber::next_frame() {
   spdlog::info("Waiting for next frame");
   auto l = std::unique_lock{_last_image_mutex};
   _last_image_cv.wait(l, [&] {
@@ -16,7 +18,10 @@ cv_bridge::CvImagePtr CameraSubscriber::next_frame() {
     return _last_image;
   });
   spdlog::info("Got it");
-  return std::move(_last_image);
+  auto f = std::move(_last_image->image);
+  _last_image = nullptr;
+  ASS(!_last_image);
+  return f;
 }
 
 void CameraSubscriber::stop() {

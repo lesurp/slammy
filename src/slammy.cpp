@@ -1,7 +1,9 @@
+#include "camera_driver/usb_camera_driver.hpp"
 #include "pose.hpp"
 #include "ros_bridge.hpp"
 #include "tracker.hpp"
-#include "utils.hpp"
+#include "utils/common.hpp"
+#include "utils/debug.hpp"
 #include <opencv4/opencv2/core/types.hpp>
 #include <ros/ros.h>
 #include <sensor_msgs/Image.h>
@@ -15,10 +17,16 @@ int main(int argc, char **argv) {
   ros::init(argc, argv, "slammy");
   ros::NodeHandle n;
 
-  auto camera = ros_bridge::CameraSubscriber{n, "/camera", 1000};
-  auto rviz = ros_bridge::RvizBridge{n};
-  spdlog::info("Subscribed to {}", "/camera");
+  auto camera = [&] {
+    if constexpr (true) {
+      spdlog::info("Subscribed to {}", "/camera");
+      return ros_bridge::CameraSubscriber{n, "/camera", 1000};
+    } else {
+      return camera_driver::UsbCameraDriver{0, cv::CAP_V4L2};
+    }
+  }();
 
+  auto rviz = ros_bridge::RvizBridge{n};
   auto tracker = tracker::Tracker{458.654, 457.296, 367.215, 248.375};
 
   auto tracker_thread = std::thread([&] {
@@ -26,10 +34,14 @@ int main(int argc, char **argv) {
       try {
         auto next_frame = camera.next_frame();
         spdlog::info("Got next frame");
+        if (next_frame.empty()) {
+          spdlog::error("Frame is empty?!");
+          continue;
+        }
 
-        auto state = tracker.next(next_frame->image);
+        auto state = tracker.next(next_frame);
         std::visit(
-            slammy::utils::variant_bullshit{
+            slammy::utils::common::variant_bullshit{
                 [](tracker::Initializing) {},
                 [&](tracker::Tracking const &t) { rviz.publish(t.pose); },
                 [&](tracker::Lost const &t) { rviz.publish(t.last_pose); },
@@ -37,25 +49,11 @@ int main(int argc, char **argv) {
                   for (auto const &p : map.poses) {
                     rviz.publish(p);
                   }
+                  rviz.publish(map.points);
                 },
             },
             state);
 
-        // path.poses.clear();
-        /*
-        for (auto const &kf : tracker.kfs()) {
-          auto const &[t, q] = kf.pose;
-          last_pose.pose.orientation.w = q.w();
-          last_pose.pose.orientation.x = q.x();
-          last_pose.pose.orientation.y = q.y();
-          last_pose.pose.orientation.z = q.z();
-          last_pose.pose.position.x = t.x();
-          last_pose.pose.position.y = t.y();
-          last_pose.pose.position.z = t.z();
-          path.poses.emplace_back(last_pose);
-        }
-        */
-        // path_displayer.publish(path);
         DBG_LOOP();
       } catch (ros_bridge::CameraSubscriber::EndOfDataException const &) {
         spdlog::info("Camera ran out of data. Exiting tracker thread");

@@ -22,10 +22,11 @@ include_directories(${catkin_INCLUDE_DIRS})
 set(slammy_deps ${catkin_LIBRARIES} fmt spdlog OpenMP::OpenMP_CXX)
 
 add_library(slammy_lib
-    src/utils.cpp
     src/tracker.cpp
     src/vision.cpp
     src/ros_bridge.cpp
+    src/utils/ass.cpp
+    src/utils/debug.cpp
 )
 target_link_libraries(slammy_lib ${slammy_deps})
 

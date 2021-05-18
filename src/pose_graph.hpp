@@ -2,7 +2,7 @@
 #define POSE_GRAPH_HPP_
 
 #include "pose.hpp"
-#include "utils.hpp"
+#include "utils/ass.hpp"
 #include <memory>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core/eigen.hpp>
@@ -20,8 +20,9 @@ struct Point;
 struct Point {
   std::vector<Keyframe *> observers;
   Eigen::Vector3d t;
+  Eigen::Matrix3d cov;
 
-  Point(Eigen::Vector3d t) : t(t) {}
+  Point(Eigen::Vector3d const& t, Eigen::Matrix3d const& cov) : t(t), cov(cov) {}
 
   Point &seen_from(std::unique_ptr<Keyframe> const &keyframe);
 };
@@ -30,13 +31,13 @@ struct Keyframe {
   cv::Mat frame;
   cv::Mat descriptors;
   std::vector<cv::KeyPoint> keypoints;
-  slammy::pose::Pose<slammy::pose::Camera, slammy::pose::World> pose;
+  slammy::pose::PoseCW pose;
   std::unordered_set<Point *> points;
 
   Keyframe(
       cv::Mat const frame, cv::Mat const descriptors,
       std::vector<cv::KeyPoint> const keypoints,
-      slammy::pose::Pose<slammy::pose::Camera, slammy::pose::World> const &pose)
+      slammy::pose::PoseCW const &pose)
       : frame(frame), descriptors(descriptors), keypoints(keypoints),
         pose(pose) {}
 };

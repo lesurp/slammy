@@ -48,6 +48,9 @@ TEST(triangulation, basic) {
     observations[1].second = Eigen::Vector2d{pt2.x, pt2.y};
 
     auto point = slammy::vision::triangulate(observations, k_inv);
-    ASSERT_TRUE(pts_3d[i].isApprox(point.t, 1e-2));
+
+    spdlog::info("pt: {}", point.t.transpose());
+    spdlog::info("pts_3d: {}", pts_3d[i].transpose());
+    EXPECT_TRUE(pts_3d[i].isApprox(point.t, 1e-3));
   }
 }

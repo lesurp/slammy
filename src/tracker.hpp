@@ -4,7 +4,6 @@
 #include "magic_enum.hpp"
 #include "pose.hpp"
 #include "pose_graph.hpp"
-#include "utils.hpp"
 #include <eigen3/Eigen/src/Core/Matrix.h>
 #include <eigen3/Eigen/src/Core/util/ForwardDeclarations.h>
 #include <opencv2/calib3d.hpp>
@@ -43,6 +42,10 @@ private:
   bool initialise(cv::Mat const &next_frame);
 
   void initial_triangulation();
+  SlammyState track(cv::Mat const &next_frame);
+  bool track_from_last_frame(cv::Mat const &next_frame);
+  bool track_from_last_keyframe(cv::Mat const &next_frame);
+  bool track_from_map(cv::Mat const &next_frame);
 
   cv::Ptr<cv::ORB> _orb;
   cv::Ptr<cv::BFMatcher> _matcher;
@@ -52,8 +55,11 @@ private:
 
   std::vector<cv::Point2f> _pts1;
   std::vector<cv::Point2f> _pts2;
-  std::vector<cv::KeyPoint> _kpts_buf;
-  cv::Mat _desc_buf;
+  std::vector<cv::KeyPoint> _kpts1;
+  std::vector<cv::KeyPoint> _kpts2;
+  std::vector<slammy::pose_graph::Point*> _map_points_for_keypoint;
+  cv::Mat _desc1;
+  cv::Mat _desc2;
   std::vector<cv::DMatch> _matches_buf;
 
   unsigned int _counter = 0;
